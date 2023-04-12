@@ -102,8 +102,14 @@ class Conv(nn.Module):
         super(Conv, self).__init__()
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
         self.bn = nn.BatchNorm2d(c2)
-        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
-
+        # quant
+        # self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        # self.act = nn.LeakyReLU(0.1015625,inplace=True) if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        # self.act = nn.ReLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        self.act = nn.Hardswish() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        # self.act = nn.Hardsigmoid() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        # 26/256 = 0.1015625
+        # self.act = nn.LeakyReLU(0.1015625,inplace=True) if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
     def forward(self, x):
         return self.act(self.bn(self.conv(x)))
 
@@ -477,8 +483,13 @@ class RepConv(nn.Module):
 
         padding_11 = autopad(k, p) - k // 2
 
-        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
-
+        # quant
+        # self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        # self.act = nn.Identity()
+        # self.act = nn.LeakyReLU(0.1015625,inplace=True) if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        self.act = nn.ReLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        # self.act = nn.Hardswish() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        # self.act = nn.Hardsigmoid() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
         if deploy:
             self.rbr_reparam = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=True)
 

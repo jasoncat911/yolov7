@@ -16,14 +16,22 @@ from utils.general import coco80_to_coco91_class, check_dataset, check_file, che
 from utils.metrics import ap_per_class, ConfusionMatrix
 from utils.plots import plot_images, output_to_target, plot_study_txt
 from utils.torch_utils import select_device, time_synchronized, TracedModel
+from models.yolo_quant import Detect
 
+def _make_grid(nx=20, ny=20):
+    yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)])
+    return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
 
 def test(data,
+         opt,
+         subset_len,
+         sample_method,
+         device = torch.device("cpu"),
          weights=None,
          batch_size=32,
          imgsz=640,
          conf_thres=0.001,
-         iou_thres=0.6,  # for NMS
+         iou_thres=0.65,  # for NMS
          save_json=False,
          single_cls=False,
          augment=False,
@@ -42,33 +50,24 @@ def test(data,
          is_coco=False,
          v5_metric=False):
     # Initialize/load model and set device
-    training = model is not None
-    if training:  # called by train.py
-        device = next(model.parameters()).device  # get model device
+    assert model is not None, f" evaluation fuction expect to pass model as input, but got None"
+    set_logging()
+    # device = select_device(opt.device, batch_size=batch_size)
 
-    else:  # called directly
-        set_logging()
-        device = select_device(opt.device, batch_size=batch_size)
-
-        # Directories
-        save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))  # increment run
-        (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
-
-        # Load model
-        model = attempt_load(weights, map_location=device)  # load FP32 model
-        gs = max(int(model.stride.max()), 32)  # grid size (max stride)
-        imgsz = check_img_size(imgsz, s=gs)  # check img_size
-        
-        if trace:
-            model = TracedModel(model, device, imgsz)
-
-    # Half
-    half = device.type != 'cpu' and half_precision  # half precision only supported on CUDA
-    if half:
-        model.half()
+    # Directories
+    save_dir = Path(increment_path(Path('/data/yolov7/runs/test') / 'exp', exist_ok=False))  # increment run
+    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+    # Load model
+    # model = attempt_load(weights, map_location=device)  # load FP32 model
+    gs = 32  # grid size (max stride)
+    imgsz = check_img_size(img_size=640, s=gs)  # check img_size
+    
 
     # Configure
-    model.eval()
+    print("begin eval")
+    model.float().fuse().eval()
+
+    # model.eval()
     if isinstance(data, str):
         is_coco = data.endswith('coco.yaml')
         with open(data) as f:
@@ -83,19 +82,26 @@ def test(data,
     if wandb_logger and wandb_logger.wandb:
         log_imgs = min(wandb_logger.log_imgs, 100)
     # Dataloader
-    if not training:
-        if device.type != 'cpu':
-            model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
-        task = opt.task if opt.task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
-        dataloader = create_dataloader(data[task], imgsz, batch_size, gs, opt, pad=0.5, rect=True,
-                                       prefix=colorstr(f'{task}: '))[0]
+    print("debug # test float 3 ",device.type, device)
+    if device.type != 'cpu':
+        model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
+        print("debug test_float model.model[0].conv.bias :",model.model[0].conv.bias)
+        print("debug test_float model.model[0].conv.weight :",model.model[0].conv.weight)
+        print("debug test_float model[105].m[0].bias :",model.model[105].m[0].bias)
+        print("debug test_float model[105].m[0].weight :",model.model[105].m[0].weight)
+        model.info(verbose=True)
+    task = 'val'  # path to train/val/test images
+    dataloader = create_dataloader(data[task], imgsz, batch_size, gs, opt=opt,pad=0.5, cache = True, rect=True,
+                                    prefix=colorstr(f'{task}: '))[0]
 
     if v5_metric:
         print("Testing with YOLOv5 AP metric...")
     
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
-    names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
+    names = {k:v for k,v in enumerate(data['names'])}  # class names
+    assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, data)  # check
+    # names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
     coco91class = coco80_to_coco91_class()
     s = ('%20s' + '%12s' * 6) % ('Class', 'Images', 'Labels', 'P', 'R', 'mAP@.5', 'mAP@.5:.95')
     p, r, f1, mp, mr, map50, map, t0, t1 = 0., 0., 0., 0., 0., 0., 0., 0., 0.
@@ -103,7 +109,7 @@ def test(data,
     jdict, stats, ap, ap_class, wandb_images = [], [], [], [], []
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
         img = img.to(device, non_blocking=True)
-        img = img.half() if half else img.float()  # uint8 to fp16/32
+        img = img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         targets = targets.to(device)
         nb, _, height, width = img.shape  # batch size, channels, height, width
@@ -111,18 +117,74 @@ def test(data,
         with torch.no_grad():
             # Run model
             t = time_synchronized()
-            out, train_out = model(img, augment=augment)  # inference and training outputs
+            # quant : since we moved some function outside of model last layer(detect), we need to add it back when post processing  
+            # print("before call model ")
+            xx = model(img)  # inference and training outputs
+            # print("debug purposes #0 ____________xx shape: " ,"  ", xx[0].shape,"  ", xx[1].shape,"  ", xx[2].shape)
             t0 += time_synchronized() - t
+            # quant from Detect __init__
+            nc = 80  # 1
+            no = nc + 5 
+            anchors = [[12,16, 19,36, 40,28], [36,75, 76,55, 72,146], [142,110, 192,243, 459,401]]
+            nl = 3  # number of detection layers
+            na = 3  # number of anchors
+            grid = [torch.zeros(1).to(device)] * nl  # init grid
+            a = torch.tensor(anchors).float().to(device).view(nl, -1, 2)
+            # anchor_grid=[torch.zeros(1).to(device)] * nl
+            anchor_grid = a.clone().to(device).view(nl, 1, -1, 1, 1, 2)
+            stride = [8, 16, 32]
+            
+            z = []
+            for i in range(nl):
+                debug = True
+                if not debug:
+                    xx[i] = xx[i].permute(0,1,3,4,2).contiguous() # to conter permute from quantization
+                    bs, _, ny, nx, _no = xx[i].shape
+                else:
+                    bs,na,ny,nx,no = xx[i].shape
+                    
+                # print("debug # postprocess 1 bs, na, ny, nx, no",bs,"  ",na,"  ",ny,"  ",nx,"  ",no)
 
+                if grid[i].shape[2:4] != xx[i].shape[2:4]:
+                    # print("debug # 2 test_float grid shape ", i , "  ",grid[i].shape, "  ", xx[i].shape )
+                    grid[i] = _make_grid(nx, ny).to(xx[i].device)
+                    # print("debug # 3 test_float grid shape ", i , "  ",grid[i].shape, "  ", xx[i].shape )
+                y = xx[i].sigmoid() # (tensor): (b, self.na, h, w, self.no)
+                y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + grid[i]) * stride[i]  # xy
+                y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * anchor_grid[i]  # wh
+                # xy, wh, conf = y.split((2, 2, nc + 1), 4)  # y.tensor_split((2, 4, 5), 4)  # torch 1.8.0
+                # xy = xy * (2. * stride[i]) + (stride[i] * (grid[i] - 0.5))  # new xy
+                # wh = wh ** 2 * (4 * anchor_grid[i].data)  # new wh
+                # y = torch.cat((xy, wh, conf), 4)
+                # print("debug test_float #2 ____________",y.shape)
+                z.append(y.view(bs, -1, no)) # z (list[P3_pred]): Torch.Size(b, n_anchors, self.no)
+            # quant after make up process, re-assemble to same dimension as original test output 
+            out,train_out = torch.cat(z,1),xx
+            # print("debug test_float #0 ", out.shape, "  -- ",len(z),  "  -- ",len(z[0][0]),"  -- ",len(z[1][0]), "  -- ",len(z[2][0]))
+            # for i in range(len(out)):
+            #     print("debug # postprocess 2 i: ", i, "  " , out, " out shape: ", out.shape)
+                # print("debug # postprocess 1 i: ", i , "bs, na, ny, nx, no",bs,"  ",na,"  ",ny,"  ",nx,"  ",no)
+            # print("debug # postprocess 3", out, " out shape: ", out.shape)
+            # print(train_out, " train_out shape: ", train_out.shape)
+            # for i in range(len(out)):
+            #     print("debug # postprocess 3 i: ", i, "  " , out, " out shape: ", out.shape, "  " , train_out, " train_out shape: ", train_out.shape)
+            
+            t0 += time_synchronized() - t
+            
             # Compute loss
             if compute_loss:
                 loss += compute_loss([x.float() for x in train_out], targets)[1][:3]  # box, obj, cls
+                print("debug test_float #1 ",compute_loss)
 
             # Run NMS
             targets[:, 2:] *= torch.Tensor([width, height, width, height]).to(device)  # to pixels
             lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if save_hybrid else []  # for autolabelling
             t = time_synchronized()
+            # print("debug # postprocess 4 targets.shape:", targets.shape, " targets: ", targets)
             out = non_max_suppression(out, conf_thres=conf_thres, iou_thres=iou_thres, labels=lb, multi_label=True)
+            # for i in range(len(out)):
+            #     print("debug # postprocess 3 i: ", i, "  " , out, " out shape: ", len(out[0]))
+            
             t1 += time_synchronized() - t
 
         # Statistics per image
@@ -232,15 +294,15 @@ def test(data,
     pf = '%20s' + '%12i' * 2 + '%12.3g' * 4  # print format
     print(pf % ('all', seen, nt.sum(), mp, mr, map50, map))
 
-    # Print results per class
-    if (verbose or (nc < 50 and not training)) and nc > 1 and len(stats):
-        for i, c in enumerate(ap_class):
-            print(pf % (names[c], seen, nt[c], p[i], r[i], ap50[i], ap[i]))
+    # # Print results per class
+    # if (verbose or (nc < 50 and not training)) and nc > 1 and len(stats):
+    #     for i, c in enumerate(ap_class):
+    #         print(pf % (names[c], seen, nt[c], p[i], r[i], ap50[i], ap[i]))
 
-    # Print speeds
-    t = tuple(x / seen * 1E3 for x in (t0, t1, t0 + t1)) + (imgsz, imgsz, batch_size)  # tuple
-    if not training:
-        print('Speed: %.1f/%.1f/%.1f ms inference/NMS/total per %gx%g image at batch-size %g' % t)
+    # # Print speeds
+    # t = tuple(x / seen * 1E3 for x in (t0, t1, t0 + t1)) + (imgsz, imgsz, batch_size)  # tuple
+    # if not training:
+    #     print('Speed: %.1f/%.1f/%.1f ms inference/NMS/total per %gx%g image at batch-size %g' % t)
 
     # Plots
     if plots:
@@ -252,6 +314,7 @@ def test(data,
         wandb_logger.log({"Bounding Box Debugger/Images": wandb_images})
 
     # Save JSON
+    print("debug test_float # 3 save_json ", save_json, len(jdict), '\n',jdict)
     if save_json and len(jdict):
         w = Path(weights[0] if isinstance(weights, list) else weights).stem if weights is not None else ''  # weights
         anno_json = '/data/coco_quant/coco/annotations/instances_val2017.json'  # annotations json
@@ -277,8 +340,8 @@ def test(data,
             print(f'pycocotools unable to run: {e}')
 
     # Return results
-    model.float()  # for training
-    if not training:
+    # model.float()  # for training
+    if True :
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''
         print(f"Results saved to {save_dir}{s}")
     maps = np.zeros(nc) + map
