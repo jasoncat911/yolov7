@@ -17,6 +17,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 import torch.utils.data
 import yaml
 from torch.cuda import amp
+from torch.cuda import empty_cache
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -34,6 +35,8 @@ from utils.loss import ComputeLoss, ComputeLossOTA
 from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, is_parallel
 from utils.wandb_logging.wandb_utils import WandbLogger, check_wandb_resume
+
+import gc 
 
 logger = logging.getLogger(__name__)
 
@@ -477,7 +480,9 @@ def train(hyp, opt, device, tb_writer=None):
                         wandb_logger.log_model(
                             last.parent, opt, epoch, fi, best_model=best_fitness == fi)
                 del ckpt
-
+        print('finished epoch ',epoch, ' releasing cuda memory...... ')
+        gc.collect()
+        empty_cache()
         # end epoch ----------------------------------------------------------------------------------------------------
     # end training
     if rank in [-1, 0]:

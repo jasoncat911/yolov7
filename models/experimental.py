@@ -251,7 +251,6 @@ def attempt_load(weights, map_location=None):
         attempt_download(w)
         ckpt = torch.load(w, map_location=map_location)  # load
         model.append(ckpt['ema' if ckpt.get('ema') else 'model'].float().fuse().eval())  # FP32 model
-    
     # Compatibility updates
     for m in model.modules():
         if type(m) in [nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU]:

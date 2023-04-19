@@ -349,9 +349,11 @@ class TracedModel(nn.Module):
         self.stride = model.stride
         self.names = model.names
         self.model = model
-
+        print(" traced Model ")
         self.model = revert_sync_batchnorm(self.model)
+
         self.model.to('cpu')
+
         self.model.eval()
 
         self.detect_layer = self.model.model[-1]

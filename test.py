@@ -37,7 +37,7 @@ def test(data,
          plots=True,
          wandb_logger=None,
          compute_loss=None,
-         half_precision=True,
+         half_precision=False,
          trace=False,
          is_coco=False,
          v5_metric=False):
@@ -60,7 +60,7 @@ def test(data,
         imgsz = check_img_size(imgsz, s=gs)  # check img_size
         
         if trace:
-            model = TracedModel(model, device, imgsz)
+            model = TracedModel(model, device, imgsz).to(device)
 
     # Half
     half = device.type != 'cpu' and half_precision  # half precision only supported on CUDA
@@ -254,7 +254,7 @@ def test(data,
     # Save JSON
     if save_json and len(jdict):
         w = Path(weights[0] if isinstance(weights, list) else weights).stem if weights is not None else ''  # weights
-        anno_json = './coco/annotations/instances_val2017.json'  # annotations json
+        anno_json = '/data/coco_quant/coco/annotations/instances_val2017.json'  # annotations json
         pred_json = str(save_dir / f"{w}_predictions.json")  # predictions json
         print('\nEvaluating pycocotools mAP... saving %s...' % pred_json)
         with open(pred_json, 'w') as f:
@@ -277,7 +277,8 @@ def test(data,
             print(f'pycocotools unable to run: {e}')
 
     # Return results
-    model.float()  # for training
+    if training:
+        model.float()  # for training
     if not training:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''
         print(f"Results saved to {save_dir}{s}")
