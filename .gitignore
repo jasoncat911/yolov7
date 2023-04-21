@@ -25,6 +25,7 @@
 
 storage.googleapis.com
 runs/*
+quantize_result/*
 data/*
 data/images/*
 !data/*.yaml

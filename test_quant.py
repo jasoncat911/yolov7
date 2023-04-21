@@ -24,21 +24,19 @@ def _make_grid(nx=20, ny=20):
 
 def test(data,
          opt,
-         subset_len,
-         sample_method,
-         device = torch.device("cpu"),
+         device = torch.device("cuda"),
          weights=None,
          batch_size=32,
          imgsz=640,
          conf_thres=0.001,
          iou_thres=0.65,  # for NMS
-         save_json=False,
+         save_json=True,
          single_cls=False,
          augment=False,
          verbose=False,
          model=None,
          dataloader=None,
-         save_dir=Path(''),  # for saving images
+         output_dir=Path(''),  # for saving images
          save_txt=False,  # for auto-labelling
          save_hybrid=False,  # for hybrid auto-labelling
          save_conf=False,  # save auto-label confidences
@@ -48,7 +46,7 @@ def test(data,
          half_precision=True,
          trace=False,
          is_coco=False,
-         v5_metric=False):
+         v5_metric=True):
     # Initialize/load model and set device
     assert model is not None, f" evaluation fuction expect to pass model as input, but got None"
     set_logging()
@@ -59,7 +57,7 @@ def test(data,
     # device = select_device(opt.device, batch_size=batch_size)
 
     # Directories
-    save_dir = Path(increment_path(Path('/data/yolov7/runs/test') / 'exp', exist_ok=False))  # increment run
+    save_dir = Path(increment_path(output_dir /'runs'/ 'exp', exist_ok=False))  # increment run
     (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
     # quant no need to load model from weights, we need use same model passed to quantizer 
     # Load model
@@ -140,17 +138,17 @@ def test(data,
             for i in range(nl):
                 debug = True #do not need to change 
                 if not debug:
-                    print("i: ",i, " debug #1 test-quant ",xx[i].shape)
+                    # print("i: ",i, " debug #1 test-quant ",xx[i].shape)
                     xxx[i] = xx[i].permute(0,1,3,4,2).contiguous() # to conter permute from quantization
                     bs, _, ny, nx, _no = xxx[i].shape
                 else:
-                    print("i: ",i, " debug #1 test-quant ",xxx[i].shape)
+                    # print("i: ",i, " debug #1 test-quant ",xxx[i].shape)
                     bs, _, ny, nx = xxx[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
                     xxx[i] = xxx[i].view(bs, na, no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
                     
                     # xxx[i] = xx[i]
                     bs,_,ny,nx,_no = xxx[i].shape
-                    print("i: ",i, " debug #2 test-quant ",xxx[i].shape)
+                    # print("i: ",i, " debug #2 test-quant ",xxx[i].shape)
                     
                 # print("debug # postprocess 1 bs, na, ny, nx, no",bs,"  ",na,"  ",ny,"  ",nx,"  ",no)
 
@@ -327,8 +325,10 @@ def test(data,
             json.dump(jdict, f)
 
         try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
-            from cocoapi.PythonAPI.pycocotools.coco import COCO
-            from cocoapi.PythonAPI.pycocotools.cocoeval import COCOeval
+            from pycocotools.coco import COCO
+            from pycocotools.cocoeval import COCOeval
+            # from cocoapi.PythonAPI.pycocotools.coco import COCO
+            # from cocoapi.PythonAPI.pycocotools.cocoeval import COCOeval
 
             anno = COCO(anno_json)  # init annotations api
             pred = anno.loadRes(pred_json)  # init predictions api

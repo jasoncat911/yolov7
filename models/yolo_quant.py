@@ -45,23 +45,8 @@ class Detect(nn.Module):
         self.training |= self.export
         for i in range(self.nl):
             x[i] = self.m[i](x[i])  # conv
-            debug = True # Debug process using modified model to repeat float model performance 
-            if not debug:
-                print("i: ",i," debug #1 yolo-quant: ",x[i].shape)
-                # pass
-                # x[i] = x[i].permute(0, 2, 3, 1) # insert a permute to cancel out the permute inserted by quantizer.
-                # # bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
-                # bs, ny, nx, _ = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
-                # # x[i] = x[i].contiguous().view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
-                # x[i] = x[i].contiguous().view(bs, self.na, self.no, ny, nx).contiguous()
-            else:
-                print("i: ",i," debug #1 yolo-quant: ",x[i].shape)
-                # bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
-                # x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
-        # return bs,self.no,self.na, ny, nx, x
-        # print("debug #2 yolo-quant: ",x.shape)
         return  x
-    #  quant
+    #  removed in quant
         #     if not self.training:  # inference
         #         if self.grid[i].shape[2:4] != x[i].shape[2:4]:
         #             self.grid[i] = self._make_grid(nx, ny).to(x[i].device)
@@ -595,9 +580,7 @@ class Model(nn.Module):
         initialize_weights(self)
         print("debug yolo-quant initialized weight&biases ")
         self.info(verbose=True)
-        # logger.info(' hello from logger  \n')
-        # print("debug yolo-quant # 1 init model :\n", self.model)
-
+        
     def forward(self, x, augment=False, profile=False):
         if augment:
             img_size = x.shape[-2:]  # height, width
