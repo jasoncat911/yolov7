@@ -66,6 +66,11 @@ python quantization.py --model yolov7/cfg/deploy/yolov7.yaml --weights yolov7/cf
 ``` shell
 python quantization.py --model yolov7/cfg/deploy/yolov7.yaml --weights yolov7/cfg/deploy/yolov7.pt --output-dir yolov7/ --quant_mode 'test' --batch 1 --deploy
 ```
+
+### Compile model(XIR based)
+``` shell
+vai_c_xir -x yolov7/quantize_result/Model_int.xmodel -a /path_to_DPU_TRD/arch.json -o yolov7/quantize_result/ -n output_net_name
+```
 </details>
 
 
