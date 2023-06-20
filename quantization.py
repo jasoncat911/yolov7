@@ -25,7 +25,7 @@ from pathlib import Path
 # modified test.py -> test_quant.py to account for moved operation 
 
 
-def quantization(quant_mode,batch_size,inspect,deploy,config_file,output_dir,opt,target):
+def quantization(quant_mode,batch_size,inspect,deploy,config_file,output_dir,opt,target,coco_yaml):
     if quant_mode != 'test' and deploy:
         deploy = False
         print(r'Warning: Exporting xmodel needs to be done in quantization test mode, turn off it in this running!')
@@ -73,7 +73,7 @@ def quantization(quant_mode,batch_size,inspect,deploy,config_file,output_dir,opt
         quant_model = quantizer.quant_model
         #####################################################################################
     # evaluate quantized model using float model evaluation scripts( modified to accomadate change in model at model initialization) 
-    output,maps,time = test_quant(data='/data/yolov7/data/coco.yaml',batch_size = batch_size,model=quant_model,device=device,opt=opt, output_dir=output_dir)
+    output,maps,time = test_quant(data=coco_yaml,batch_size = batch_size,model=quant_model,device=device,opt=opt, output_dir=output_dir)
     print("print some result :",output, "\n", maps,"\n", time)
     # handle quantization result
     if quant_mode == 'calib':
@@ -139,6 +139,12 @@ parser.add_argument(
     default="0x101000016010407",
     help='DPU fingerprint'
 )
+parser.add_argument(
+    '--coco_yaml',
+    type=str,
+    default="/data/cat_yolov7/yolov7/data/coco.yaml",
+    help='path to coco.yaml'
+)
 
 args, _ = parser.parse_known_args()
 # device = torch.device("cpu")
@@ -153,4 +159,5 @@ if __name__ == '__main__':
                         config_file=args.config_file,\
                             output_dir=args.output_dir,\
                                 target=args.target,\
+                                    coco_yaml=args.coco_yaml,\
                                     opt = args)
