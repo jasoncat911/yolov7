@@ -58,7 +58,7 @@ def quantization(quant_mode,batch_size,inspect,deploy,config_file,output_dir,opt
             print("jit trace test passed")
             # create inspector
             # inspector = Inspector("0x603000b16013831") # by fingerprint
-            inspector = Inspector("0x101000016010407") # by fingerprint, B4096: 0x101000016010407, B2304: 0x101000056010405
+            inspector = Inspector(target) # by fingerprint, B4096: 0x101000016010407, B2304: 0x101000056010405
             # inspector = Inspector("DPUCAHX8L_ISA0_SP")  # by name
             # start to inspect
             inspector.inspect(quant_model, (input,), device=device, output_dir=Path(output_dir/'quantize_result'/'inspect').as_posix(),image_format="png")
